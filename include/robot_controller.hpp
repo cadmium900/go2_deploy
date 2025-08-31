@@ -75,7 +75,7 @@ public:
 
     void initRobotStateClient()
     {
-        rsc.SetTimeout(10.0f); 
+        rsc.SetTimeout(10.0f);
         rsc.Init();
     }
 
@@ -91,7 +91,7 @@ public:
             if(serviceState.name == serviceName)
             {
                 if(serviceState.status == 0)
-                {   
+                {
                     std::cout << "name: " << serviceState.name <<" is activate"<<std::endl;
                     serviceStatus = 1;
                 }
@@ -99,8 +99,8 @@ public:
                 {
                     std::cout << "name:" << serviceState.name <<" is deactivate"<<std::endl;
                     serviceStatus = 0;
-                } 
-            }    
+                }
+            }
         }
         return serviceStatus;
     }
@@ -184,7 +184,7 @@ protected:
     RobotStateClient rsc;
 
 private:
-        
+
     // 500Hz
     void LowStateMessageHandler(const void *message)
     {
@@ -210,7 +210,7 @@ private:
             std::lock_guard<std::mutex> lock(cmd_mutex);
             lowcmd_publisher->Write(cmd);
         }
-        
+
     }
 
     void init_low_cmd()
@@ -257,6 +257,7 @@ private:
         // Y -> Stop
         if(gamepad.R1.on_press)
         {
+            printf("[Gamepad] R1 (Sit)\n");
             if(state_machine.Sit())
             {
                 SitCallback();
@@ -264,6 +265,7 @@ private:
         }
         if (gamepad.R2.on_press)
         {
+            printf("[Gamepad] R2 (Stand)\n");
             if (state_machine.Stand()) // 进入站立状态
             {
                 StandCallback();
@@ -271,6 +273,7 @@ private:
         }
         if (gamepad.A.on_press)
         {
+            printf("[Gamepad] A (Control Enable)\n");
             if (state_machine.Ctrl())
             {
                 CtrlCallback();
@@ -278,6 +281,7 @@ private:
         }
         if (gamepad.Y.pressed)
         {
+            printf("[Gamepad] Y (STOP)\n");
             state_machine.Stop();
         }
     }
@@ -429,7 +433,7 @@ private:
     void Standing(float kp = 60.0, float kd = 5.0)
     {
         ctrl.DummyCalculate(); // warmup the neural network
-        
+
         state_machine.Standing(ctrl);
 
         robot_interface.jpos_des = ctrl.jpos_des;
@@ -443,7 +447,7 @@ private:
         {
             robot_interface.jpos_des = ctrl.jpos_des;
         }
-        
+
     }
 
     bool CheckTermination()

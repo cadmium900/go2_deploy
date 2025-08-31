@@ -55,12 +55,14 @@ class RLController : public BasicUserController
             theta.fill(0.0);
             gait_period = 0.0;
             frame_stack = 5;
-            num_single_obs = 52; // length of single step observation
+            num_single_obs = 57; // length of single step observation
             lin_vel_scale = 2.0;
             ang_vel_scale = 0.25;
             dof_vel_scale = 0.05;
             num_gaits = 1;
             gait_choice = 0; // default to the first gait
+            pitch_target = 0.0;
+            gait_offset.fill(0.0);
         }
 
         /**
@@ -151,6 +153,8 @@ class RLController : public BasicUserController
                 history_obs.at(i).resize(num_single_obs);
                 history_obs.at(i) = single_step_obs;
             }
+            pitch_target = 0.0;
+            gait_offset.fill(0.0);
         }
         /**
          * @brief 载入运动策略
@@ -162,6 +166,13 @@ class RLController : public BasicUserController
             fs::path model_path = fs::current_path() / "../models";
             policy = torch::jit::load(model_path / policy_name);
             std::cout << "Load policy from: " << model_path / policy_name << std::endl;
+            torch::Tensor policy_input_tensor = torch::zeros({1, frame_stack * num_single_obs}, torch::kFloat32);
+            try {
+                auto out = policy.forward({policy_input_tensor}).toTensor();
+                std::cout << "Forward OK. Output shape: " << out.sizes() << std::endl;
+            } catch (const c10::Error& e) {
+                std::cerr << "Forward failed: " << e.msg() << std::endl;
+            }
         }
 
         void GetInput(BasicRobotInterface &robot_interface, Gamepad &gamepad)
@@ -175,38 +186,46 @@ class RLController : public BasicUserController
             {
                 gait_period += 0.01;
                 gait_period = std::min(gait_period, gait_period_range.at(1));
+                printf("Gait_Period to %f\n", gait_period);
             }
             else if(gamepad.right.pressed)
             {
                 gait_period -= 0.01;
                 gait_period = std::max(gait_period, gait_period_range.at(0));
+                printf("Gait_Period to %f\n", gait_period);
             }
             // Up and Down for base height target
             if(gamepad.up.pressed)
             {
                 base_height_target += 0.01;
                 base_height_target = std::min(base_height_target, base_height_target_range.at(1));
+                printf("Base_Height to %f\n", base_height_target);
             }
             else if(gamepad.down.pressed)
             {
                 base_height_target -= 0.01;
                 base_height_target = std::max(base_height_target, base_height_target_range.at(0));
+                printf("Base_Height to %f\n", base_height_target);
             }
             // L1 and L2 for foot clearance target
             if(gamepad.L1.pressed)
             {
                 foot_clearance_target += 0.01;
                 foot_clearance_target = std::min(foot_clearance_target, foot_clearance_target_range.at(1));
+                printf("Foot_Clearance to %f\n", foot_clearance_target);
             }
             else if(gamepad.L2.pressed)
             {
                 foot_clearance_target -= 0.01;
                 foot_clearance_target = std::max(foot_clearance_target, foot_clearance_target_range.at(0));
+                printf("Foot_Clearance to %f\n", foot_clearance_target);
             }
             // record command
             cmd.at(0) = gamepad.ly; // linear_x: [-1,1]
             cmd.at(1) = -gamepad.lx; // linear_y; [-1,1]
             cmd.at(2) = -gamepad.rx; // angular_z: [-1,1]
+
+            pitch_target = gamepad.ry;
 
             // record robot state
             for (int i = 0; i < 12; ++i)
@@ -221,7 +240,7 @@ class RLController : public BasicUserController
         {
             gait_time = 0.0;
             phi = 0.0;
-            gait_choice = 0; 
+            gait_choice = 0;
             gait_period = gait_period_range.at(1);
             base_height_target = base_height_target_range.at(1);
             foot_clearance_target = foot_clearance_target_range.at(1);
@@ -362,6 +381,8 @@ class RLController : public BasicUserController
         float gait_period;
         float base_height_target;
         float foot_clearance_target;
+        float pitch_target;
+        std::array<float, 4> gait_offset;
         int frame_stack;
         int num_single_obs; // length of single step observation
         std::vector<float> single_step_obs; // 用于记录单步观测数据
@@ -394,7 +415,7 @@ class RLController : public BasicUserController
         torch::jit::script::Module policy;
 
     private:
-        
+
         void calc_periodic_obs()
         {
             for (int i = 0; i < 4; i++)
@@ -443,7 +464,13 @@ class RLController : public BasicUserController
             }
             single_step_obs.at(49) = gait_period;
             single_step_obs.at(50) = base_height_target;
-            single_step_obs.at(51) = foot_clearance_target; 
+            single_step_obs.at(51) = foot_clearance_target;
+            single_step_obs.at(52) = pitch_target;
+            for (int i = 0; i < 4; ++i)
+            {
+                single_step_obs.at(i+53) = gait_offset.at(i);
+            }
+
         }
     };
 } // namespace unitree::common

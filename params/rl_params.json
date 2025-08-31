@@ -1,5 +1,5 @@
 {
-    "policy_name": "Aug24_18-59-18_step_gait.pt",
+    "policy_name": "go2.pt",
     "dt": 0.02,
     "stand_kp": 60.0,
     "stand_kd": 5.0,
@@ -10,7 +10,7 @@
     "ang_vel_scale": 0.25,
     "dof_vel_scale": 0.05,
     "frame_stack": 5,
-    "num_single_obs": 52,
+    "num_single_obs": 57,
     "num_gaits": 1,
     "gait_period_range": [0.3, 0.6],
     "base_height_target_range": [0.2, 0.35],
