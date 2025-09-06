@@ -62,7 +62,6 @@ class RLController : public BasicUserController
             num_gaits = 1;
             gait_choice = 0; // default to the first gait
             pitch_target = 0.0;
-            gait_offset.fill(0.0);
         }
 
         /**
@@ -154,7 +153,6 @@ class RLController : public BasicUserController
                 history_obs.at(i) = single_step_obs;
             }
             pitch_target = 0.0;
-            gait_offset.fill(0.0);
         }
         /**
          * @brief 载入运动策略
@@ -382,7 +380,6 @@ class RLController : public BasicUserController
         float base_height_target;
         float foot_clearance_target;
         float pitch_target;
-        std::array<float, 4> gait_offset;
         int frame_stack;
         int num_single_obs; // length of single step observation
         std::vector<float> single_step_obs; // 用于记录单步观测数据
@@ -468,7 +465,7 @@ class RLController : public BasicUserController
             single_step_obs.at(52) = pitch_target;
             for (int i = 0; i < 4; ++i)
             {
-                single_step_obs.at(i+53) = gait_offset.at(i);
+                single_step_obs.at(i+53) = theta.at(i);
             }
 
         }
