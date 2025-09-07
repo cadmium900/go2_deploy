@@ -98,6 +98,7 @@ class RLController : public BasicUserController
             FromJsonString(ss.str(), cfg);
 
             // get data from json
+            device = cfg.device;
             dt = cfg.dt;
             stand_kp = cfg.stand_kp;
             stand_kd = cfg.stand_kd;
@@ -169,7 +170,10 @@ class RLController : public BasicUserController
             fs::path model_path = fs::current_path() / "../models";
 
             // Prefer a persistent device member so all code uses the same device.
-            inference_device = torch::Device(torch::kCUDA, 0);
+            if (device == "cpu")
+                inference_device = torch::Device(torch::kCPU, 0);
+            else
+                inference_device = torch::Device(torch::kCUDA, 0);
 
             // Enable TF32 (Tensor Cores for FP32 matmul/conv) and let cuDNN pick fast kernels.
             at::globalContext().setAllowTF32CuBLAS(true);
@@ -420,6 +424,7 @@ class RLController : public BasicUserController
         float phi;
         // NN model
         std::string policy_name;
+        std::string device;
         torch::jit::script::Module policy;
 
     private:

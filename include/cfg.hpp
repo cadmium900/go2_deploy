@@ -37,13 +37,14 @@ namespace unitree::common
     class RLCfg : public Jsonize
     {
     public:
-        RLCfg() : stand_kp(0), stand_kd(0), ctrl_kp(0), ctrl_kd(0), dt(0), 
+        RLCfg() : stand_kp(0), stand_kd(0), ctrl_kp(0), ctrl_kd(0), dt(0),
                   action_scale(0.1), lin_vel_scale(2.0), ang_vel_scale(0.25), dof_vel_scale(0.05)
         {
         }
 
         void fromJson(JsonMap &json)
         {
+            FromJson(json["device"], device);
             FromJson(json["stand_kp"], stand_kp);
             FromJson(json["stand_kd"], stand_kd);
             FromJson(json["dt"], dt);
@@ -70,6 +71,7 @@ namespace unitree::common
 
         void toJson(JsonMap &json) const
         {
+            ToJson(device, json["device"]);
             ToJson(stand_kp, json["stand_kp"]);
             ToJson(stand_kd, json["stand_kd"]);
             ToJson(dt, json["dt"]);
@@ -94,6 +96,7 @@ namespace unitree::common
             ToAny<float>(theta_rr, json["theta_rr"]);
         }
 
+        std::string device;
         float stand_kp;
         float stand_kd;
         float dt;
@@ -106,9 +109,9 @@ namespace unitree::common
         int num_actions;
         int frame_stack;
         int num_single_obs;
-        
+
         std::string policy_name;
-        
+
         // gait parameters
         int num_gaits;
         std::vector<float> gait_period_range;
@@ -121,6 +124,6 @@ namespace unitree::common
 
         std::vector<float> stand_pos;
         std::vector<float> sit_pos;
-        
+
     };
 }
