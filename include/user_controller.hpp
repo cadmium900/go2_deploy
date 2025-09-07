@@ -6,7 +6,10 @@
 #include <fstream>
 #include <string>
 #include <deque>
+#include <sstream>
+#include <cmath>
 
+#include <ATen/Context.h>  // for at::globalContext()
 #include "torch/script.h"
 #include "robot_interface.hpp"
 #include "gamepad.hpp"
@@ -89,7 +92,7 @@ class RLController : public BasicUserController
         {
             // load param file
             std::ifstream cfg_file(param_folder / "rl_params.json");
-            std::cout << "Read params from: " << param_folder / "rl_params.json" << std::endl;
+            std::cout << "Read params from: " << (param_folder / "rl_params.json") << std::endl;
             std::stringstream ss;
             ss << cfg_file.rdbuf();
             FromJsonString(ss.str(), cfg);
@@ -154,23 +157,39 @@ class RLController : public BasicUserController
             }
             pitch_target = 0.0;
         }
+
         /**
          * @brief 载入运动策略
          * @note  载入后缀为.pt的模型文件, 该模型文件使用torch.jit.save()保存.
          * @note  默认模型文件路径为../models/
+         * @note  FP32 inference with TF32 enabled (Ampere Tensor Cores).
         */
         void loadPolicy()
         {
             fs::path model_path = fs::current_path() / "../models";
-            policy = torch::jit::load(model_path / policy_name);
-            std::cout << "Load policy from: " << model_path / policy_name << std::endl;
-            torch::Tensor policy_input_tensor = torch::zeros({1, frame_stack * num_single_obs}, torch::kFloat32);
-            try {
-                auto out = policy.forward({policy_input_tensor}).toTensor();
-                std::cout << "Forward OK. Output shape: " << out.sizes() << std::endl;
-            } catch (const c10::Error& e) {
-                std::cerr << "Forward failed: " << e.msg() << std::endl;
-            }
+
+            // Prefer a persistent device member so all code uses the same device.
+            inference_device = torch::Device(torch::kCUDA, 0);
+
+            // Enable TF32 (Tensor Cores for FP32 matmul/conv) and let cuDNN pick fast kernels.
+            at::globalContext().setAllowTF32CuBLAS(true);
+            at::globalContext().setAllowTF32CuDNN(true);
+            at::globalContext().setBenchmarkCuDNN(true);
+
+            // Load directly onto CUDA in FP32
+            policy = torch::jit::load((model_path / policy_name).string(), inference_device);
+            policy.eval();
+
+            std::cout << "Load policy from: " << (model_path / policy_name) << std::endl;
+
+            // Warmup with a CUDA FP32 tensor to verify device/dtype path.
+            c10::InferenceMode guard;
+            auto policy_input_tensor = torch::zeros(
+                {1, frame_stack * num_single_obs},
+                torch::TensorOptions().dtype(torch::kFloat32).device(inference_device));
+
+            auto out = policy.forward({policy_input_tensor}).toTensor();
+            std::cout << "Forward OK. Output shape: " << out.sizes() << std::endl;
         }
 
         void GetInput(BasicRobotInterface &robot_interface, Gamepad &gamepad)
@@ -267,17 +286,13 @@ class RLController : public BasicUserController
             }
             history_obs.pop_front();
             history_obs.push_back(single_step_obs);
-            std::vector<torch::jit::IValue> policy_input;
-            torch::Tensor policy_input_tensor = torch::zeros({1, frame_stack*num_single_obs});
-            for(int i = 0; i < frame_stack; ++i)
-            {
-                for(int j = 0; j < num_single_obs; ++j)
-                {
-                    policy_input_tensor[0][i*num_single_obs + j] = history_obs.at(i).at(j);
-                }
-            }
-            policy_input.push_back(policy_input_tensor);
-            torch::Tensor policy_output_tensor = policy.forward(policy_input).toTensor();
+
+            // Build FP32 input on CPU and move to CUDA (same device as policy)
+            auto policy_input_tensor = build_policy_input_tensor();
+
+            c10::InferenceMode guard;
+            auto policy_output_tensor = policy.forward({policy_input_tensor}).toTensor();
+            (void)policy_output_tensor;
         }
 
         void Calculate()
@@ -287,17 +302,13 @@ class RLController : public BasicUserController
             fill_single_step_obs();
             history_obs.pop_front();
             history_obs.push_back(single_step_obs);
-            std::vector<torch::jit::IValue> policy_input;
-            torch::Tensor policy_input_tensor = torch::zeros({1, frame_stack*num_single_obs});
-            for(int i = 0; i < frame_stack; ++i)
-            {
-                for(int j = 0; j < num_single_obs; ++j)
-                {
-                    policy_input_tensor[0][i*num_single_obs + j] = history_obs.at(i).at(j);
-                }
-            }
-            policy_input.push_back(policy_input_tensor);
-            torch::Tensor policy_output_tensor = policy.forward(policy_input).toTensor();
+
+            // Build FP32 input on CPU and move to CUDA (same device as policy)
+            auto policy_input_tensor = build_policy_input_tensor();
+
+            c10::InferenceMode guard;
+            auto policy_output_tensor = policy.forward({policy_input_tensor}).toTensor();
+
             /***** 计算期望位置 *****/
             std::array<float, 12> actions_scaled;
             for(int i = 0; i < 12; ++i)
@@ -412,6 +423,26 @@ class RLController : public BasicUserController
         torch::jit::script::Module policy;
 
     private:
+        // All inference uses this device (kept consistent across calls).
+        torch::Device inference_device{torch::kCUDA, 0};
+
+        // Build a {1, frame_stack*num_single_obs} FP32 tensor on CPU from history,
+        // then move to CUDA on the same device as the policy.
+        torch::Tensor build_policy_input_tensor()
+        {
+            std::vector<float> flat(frame_stack * num_single_obs);
+            for (int i = 0; i < frame_stack; ++i)
+            {
+                const auto &row = history_obs.at(i);
+                std::copy(row.begin(), row.end(), flat.begin() + i * num_single_obs);
+            }
+            auto cpu = torch::from_blob(
+                           flat.data(),
+                           {1, frame_stack * num_single_obs},
+                           torch::TensorOptions().dtype(torch::kFloat32))
+                           .clone(); // own the memory
+            return cpu.to(inference_device);
+        }
 
         void calc_periodic_obs()
         {
@@ -467,7 +498,6 @@ class RLController : public BasicUserController
             {
                 single_step_obs.at(i+53) = theta.at(i);
             }
-
         }
     };
 } // namespace unitree::common
