@@ -246,7 +246,8 @@ class RLController : public BasicUserController
             cmd.at(1) = -gamepad.lx; // linear_y; [-1,1]
             cmd.at(2) = -gamepad.rx; // angular_z: [-1,1]
 
-            pitch_target = gamepad.ry;
+            //*** pitch_target = gamepad.ry;
+            pitch_target = 1.0;
 
             // record robot state
             for (int i = 0; i < 12; ++i)
@@ -496,8 +497,10 @@ class RLController : public BasicUserController
                 single_step_obs.at(i+45) = clock_input.at(i);
             }
             single_step_obs.at(49) = gait_period;
-            single_step_obs.at(50) = base_height_target;
-            single_step_obs.at(51) = foot_clearance_target;
+            //*** single_step_obs.at(50) = base_height_target;
+            single_step_obs.at(50) = 0.0;
+            //*** single_step_obs.at(51) = foot_clearance_target;
+            single_step_obs.at(51) = 0.0;
             single_step_obs.at(52) = pitch_target;
             for (int i = 0; i < 4; ++i)
             {
