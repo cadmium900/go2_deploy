@@ -499,8 +499,7 @@ class RLController : public BasicUserController
             single_step_obs.at(49) = gait_period;
             //*** single_step_obs.at(50) = base_height_target;
             single_step_obs.at(50) = 0.0;
-            //*** single_step_obs.at(51) = foot_clearance_target;
-            single_step_obs.at(51) = 0.0;
+            single_step_obs.at(51) = foot_clearance_target;
             single_step_obs.at(52) = pitch_target;
             for (int i = 0; i < 4; ++i)
             {
