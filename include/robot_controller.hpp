@@ -165,6 +165,7 @@ public:
         // prepare for start
         std::cout << "Start!" << std::endl;
         Damping();
+        printf("Ctl DT: %f", ctrl.dt);
         ctrl_dt_micro_sec = static_cast<uint64_t>(ctrl.dt * 1000000); // 0.02s, 50Hz
 
         // Start the control thread
