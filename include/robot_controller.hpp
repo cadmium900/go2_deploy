@@ -97,7 +97,7 @@ public:
                 }
                 else
                 {
-                    std::cout << "name:" << serviceState.name <<" is deactivate"<<std::endl;
+                    std::cout << "name:" << serviceState.name <<" is deactivated"<<std::endl;
                     serviceStatus = 0;
                 }
             }
@@ -127,12 +127,35 @@ public:
         // init low-level command
         init_low_cmd();
         // listen to gamepad command
-        std::cout << "Press START button to start!" << std::endl;
+        printf("Press START button to continue! \n\n");
+
+        printf("When not in control_mode: \n");
+        printf("  R1    -> Sit\n");
+        printf("  R2    -> Stand\n");
+        printf("  A     -> Go in ControlMode\n");
+        printf("\n");
+
+        printf("In control_mode: \n");
+        printf("  Y           -> Stop\n");
+        printf("  Left Thumb  -> Robot linear velocity\n");
+        printf("  Right Thumb -> Robot angular velocity\n");
+        printf("  Up/Down     -> Change base height target\n");
+        printf("  Left/Right  -> Change gait period\n");
+        printf("  L1/L2       -> Change foot clearance target\n");
+        printf("\n");
+
+        printf("With Select pressed:\n");
+        printf("  Left Thumb  -> Left Arm control. X=Lateral Shoulder, Y=Shoulder Front\n");
+        printf("  Right Thumb -> Right Arm control. X=Lateral Shoulder, Y=Shoulder Front\n");
+        printf("  L1/L2       -> Left Arm elbow\n");
+        printf("  R1/R2       -> Right Arm elbow\n");
+        printf("\n");
+
         while (true)
         {
             std::this_thread::sleep_for(duration);
 
-            InteprateGamePad();
+            UpdateGamePad();
             if (gamepad.start.on_press)
             {
                 break;
@@ -195,7 +218,7 @@ private:
         }
     }
 
-    void InteprateGamePad()
+    void UpdateGamePad()
     {
         // update gamepad
         memcpy(rx.buff, &state.wireless_remote()[0], 40);
@@ -255,30 +278,35 @@ private:
         // R2 -> Stand
         // A -> Ctrl
         // Y -> Stop
-        if(gamepad.R1.on_press)
+        if (state_machine.state != STATES::CTRL)
         {
-            printf("[Gamepad] R1 (Sit)\n");
-            if(state_machine.Sit())
+            if (gamepad.R1.on_press)
             {
-                SitCallback();
+                printf("[Gamepad] R1 (Sit)\n");
+                if (state_machine.Sit())
+                {
+                    SitCallback();
+                }
+            }
+            if (gamepad.R2.on_press)
+            {
+                printf("[Gamepad] R2 (Stand)\n");
+                if (state_machine.Stand())
+                {
+                    StandCallback();
+                }
+            }
+
+            if (gamepad.A.on_press)
+            {
+                printf("[Gamepad] A (Control Enable)\n");
+                if (state_machine.Ctrl())
+                {
+                    CtrlCallback();
+                }
             }
         }
-        if (gamepad.R2.on_press)
-        {
-            printf("[Gamepad] R2 (Stand)\n");
-            if (state_machine.Stand()) // 进入站立状态
-            {
-                StandCallback();
-            }
-        }
-        if (gamepad.A.on_press)
-        {
-            printf("[Gamepad] A (Control Enable)\n");
-            if (state_machine.Ctrl())
-            {
-                CtrlCallback();
-            }
-        }
+
         if (gamepad.Y.pressed)
         {
             printf("[Gamepad] Y (STOP)\n");
@@ -289,21 +317,17 @@ private:
     // 50Hz
     void ControlStep()
     {
-        // main loop
-
         // update state
-        InteprateGamePad(); // 接收数据是500Hz频率, 但是我只有运行主控制线程时才需要处理好的gamepad数据
-                            // 所以可以在主控制程序中处理gamepad数据
+        UpdateGamePad();
         UpdateStateMachine();
 
         // select control modes according to the state machine
         auto start = std::chrono::high_resolution_clock::now();
-        // 读取状态信息
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             ctrl.GetInput(robot_interface, gamepad);
         }
-        // 根据状态判断具体执行哪个状态下的处理函数
+
         if(state_machine.state == STATES::SIT)
         {
             Sitting();
@@ -336,8 +360,7 @@ private:
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
         compute_time.push_back(duration.count() / 1000.); // us->ms
 
-        // write log
-        WriteLog();
+        //WriteLog();
 
         if (compute_time.size() == 50)
         {
@@ -373,29 +396,24 @@ private:
 
     void SitCallback()
     {
-        // 保存初始关节位置
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             ctrl.save_jpos(robot_interface);
         }
-        robot_interface.jpos_des = ctrl.start_pos; // 由阻尼状态的初始位置开始
+        robot_interface.jpos_des = ctrl.start_pos;
         robot_interface.jvel_des.fill(0.);
         robot_interface.kp.fill(ctrl.stand_kp);
         robot_interface.kd.fill(ctrl.stand_kd);
         robot_interface.tau_ff.fill(0.);
     }
-    /**
-     * @brief 站立状态回调函数
-     * @note  进入状态时调用一次, 用于进入站立状态的初始化工作
-    */
+
     void StandCallback()
     {
-        // 保存初始关节位置
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             ctrl.save_jpos(robot_interface);
         }
-        robot_interface.jpos_des = ctrl.start_pos; // 由阻尼状态的初始位置开始
+        robot_interface.jpos_des = ctrl.start_pos;
         robot_interface.jvel_des.fill(0.);
         robot_interface.kp.fill(ctrl.stand_kp);
         robot_interface.kd.fill(ctrl.stand_kd);
@@ -404,7 +422,6 @@ private:
 
     void CtrlCallback()
     {
-        // 重置状态
         ctrl.reset(robot_interface, gamepad);
 
         robot_interface.jpos_des = ctrl.stand_pos;
@@ -432,7 +449,8 @@ private:
 
     void Standing(float kp = 60.0, float kd = 5.0)
     {
-        ctrl.DummyCalculate(); // warmup the neural network
+        // warmup the neural network
+        ctrl.DummyCalculate();
 
         state_machine.Standing(ctrl);
 

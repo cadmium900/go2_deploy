@@ -63,10 +63,12 @@ namespace unitree::common
             FromAny<float>(json["foot_clearance_target_range"], foot_clearance_target_range);
             FromAny<float>(json["stand_pos"], stand_pos);
             FromAny<float>(json["sit_pos"], sit_pos);
-            FromAny<float>(json["theta_fl"], theta_fl);
-            FromAny<float>(json["theta_fr"], theta_fr);
-            FromAny<float>(json["theta_rl"], theta_rl);
-            FromAny<float>(json["theta_rr"], theta_rr);
+            FromAny<float>(json["fl_hip_limit"], fl_hip_limit);
+            FromAny<float>(json["fl_thigh_limit"], fl_thigh_limit);
+            FromAny<float>(json["fl_calf_limit"], fl_calf_limit);
+            FromAny<float>(json["fr_hip_limit"], fr_hip_limit);
+            FromAny<float>(json["fr_thigh_limit"], fr_thigh_limit);
+            FromAny<float>(json["fr_calf_limit"], fr_calf_limit);
         }
 
         void toJson(JsonMap &json) const
@@ -90,10 +92,12 @@ namespace unitree::common
             ToAny<float>(foot_clearance_target_range, json["foot_clearance_target_range"]);
             ToAny<float>(stand_pos, json["stand_pos"]);
             ToAny<float>(sit_pos, json["sit_pos"]);
-            ToAny<float>(theta_fl, json["theta_fl"]);
-            ToAny<float>(theta_fr, json["theta_fr"]);
-            ToAny<float>(theta_rl, json["theta_rl"]);
-            ToAny<float>(theta_rr, json["theta_rr"]);
+            ToAny<float>(fl_hip_limit, json["fl_hip_limit"]);
+            ToAny<float>(fl_thigh_limit, json["fl_thigh_limit"]);
+            ToAny<float>(fl_calf_limit, json["fl_calf_limit"]);
+            ToAny<float>(fr_hip_limit, json["fr_hip_limit"]);
+            ToAny<float>(fr_thigh_limit, json["fr_thigh_limit"]);
+            ToAny<float>(fr_calf_limit, json["fr_calf_limit"]);
         }
 
         std::string device;
@@ -117,13 +121,13 @@ namespace unitree::common
         std::vector<float> gait_period_range;
         std::vector<float> base_height_target_range;
         std::vector<float> foot_clearance_target_range;
-        std::vector<float> theta_fl;
-        std::vector<float> theta_fr;
-        std::vector<float> theta_rl;
-        std::vector<float> theta_rr;
-
+        std::vector<float> fl_hip_limit;
+        std::vector<float> fl_thigh_limit;
+        std::vector<float> fl_calf_limit;
+        std::vector<float> fr_hip_limit;
+        std::vector<float> fr_thigh_limit;
+        std::vector<float> fr_calf_limit;
         std::vector<float> stand_pos;
         std::vector<float> sit_pos;
-
     };
 }

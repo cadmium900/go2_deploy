@@ -25,22 +25,18 @@ namespace unitree::common
         BasicUserController() {}
 
         virtual void LoadParam(fs::path &param_folder) = 0;
-
         virtual void reset(BasicRobotInterface &robot_interface, Gamepad &gamepad) = 0;
-
         virtual void GetInput(BasicRobotInterface &robot_interface, Gamepad &gamepad) = 0;
-
         virtual void Calculate() = 0;
 
         virtual std::vector<float> GetLog() = 0;
 
         float dt;
-        std::array<float, 12> start_pos; // 阻尼状态的位置
-        std::array<float, 12> stand_pos; // 站立状态最终位置
+        std::array<float, 12> start_pos;
+        std::array<float, 12> stand_pos;
         std::array<float, 12> jpos_des;
     };
 
-// UserController为实际进行控制所需计算的类
 class RLController : public BasicUserController
 {
     public:
@@ -55,16 +51,13 @@ class RLController : public BasicUserController
             jvel.fill(0.0);
             actions.fill(0.0);
             clock_input.fill(0.0);
-            theta.fill(0.0);
             gait_period = 0.0;
             frame_stack = 5;
-            num_single_obs = 57; // length of single step observation
+            num_single_obs = 61; // length of single step observation
             lin_vel_scale = 2.0;
             ang_vel_scale = 0.25;
             dof_vel_scale = 0.05;
             num_gaits = 1;
-            gait_choice = 0; // default to the first gait
-            pitch_target = 0.0;
         }
 
         /**
@@ -83,10 +76,6 @@ class RLController : public BasicUserController
          * @note  - gait_time: 步态周期
          * @note  - stand_pos: 站立状态关节位置
          * @note  - swing_phase_ratio: 摆动相占比
-         * @note  - theta_fl: fl相位偏移
-         * @note  - theta_fr: fr相位偏移
-         * @note  - theta_rl: rl相位偏移
-         * @note  - theta_rr: rr相位偏移
         */
         void LoadParam(fs::path &param_folder)
         {
@@ -112,21 +101,10 @@ class RLController : public BasicUserController
             frame_stack = cfg.frame_stack;
             num_single_obs = cfg.num_single_obs;
             num_gaits = cfg.num_gaits;
-            theta_fl.resize(num_gaits);
-            theta_fr.resize(num_gaits);
-            theta_rl.resize(num_gaits);
-            theta_rr.resize(num_gaits);
             for (int i = 0; i < 12; ++i)
             {
                 stand_pos.at(i) = cfg.stand_pos.at(i);
                 sit_pos.at(i) = cfg.sit_pos.at(i);
-            }
-            for (int i = 0; i < num_gaits; ++i)
-            {
-                theta_fl.at(i) = cfg.theta_fl.at(i);
-                theta_fr.at(i) = cfg.theta_fr.at(i);
-                theta_rl.at(i) = cfg.theta_rl.at(i);
-                theta_rr.at(i) = cfg.theta_rr.at(i);
             }
             // Read behavior param range
             for (int i = 0; i < 2; ++i)
@@ -138,10 +116,7 @@ class RLController : public BasicUserController
             gait_period = gait_period_range.at(1);
             base_height_target = base_height_target_range.at(1);
             foot_clearance_target = foot_clearance_target_range.at(1);
-            theta.at(0) = theta_fl.at(gait_choice);
-            theta.at(1) = theta_fr.at(gait_choice);
-            theta.at(2) = theta_rl.at(gait_choice);
-            theta.at(3) = theta_rr.at(gait_choice);
+
             // initialize history observation buffer
             // prepare history buffers
             single_step_obs.resize(num_single_obs);
@@ -156,15 +131,18 @@ class RLController : public BasicUserController
                 history_obs.at(i).resize(num_single_obs);
                 history_obs.at(i) = single_step_obs;
             }
-            pitch_target = 0.0;
+
+            arm_left_shoulder_lateral_target = 0.0;
+            arm_left_shoulder_front_target   = 0.0;
+            arm_left_elbow_target            = 0.0;
+            arm_left_gripper_target          = 0.0;
+
+            arm_right_shoulder_lateral_target = 0.0;
+            arm_right_shoulder_front_target   = 0.0;
+            arm_right_elbow_target            = 0.0;
+            arm_right_gripper_target          = 0.0;
         }
 
-        /**
-         * @brief 载入运动策略
-         * @note  载入后缀为.pt的模型文件, 该模型文件使用torch.jit.save()保存.
-         * @note  默认模型文件路径为../models/
-         * @note  FP32 inference with TF32 enabled (Ampere Tensor Cores).
-        */
         void loadPolicy()
         {
             fs::path model_path = fs::current_path() / "../models";
@@ -202,51 +180,83 @@ class RLController : public BasicUserController
             std::copy(robot_interface.gyro.begin(), robot_interface.gyro.end(), base_ang_vel.begin());
             std::copy(robot_interface.projected_gravity.begin(), robot_interface.projected_gravity.end(), projected_gravity.begin());
 
-            // Left and Right for gait period
-            if(gamepad.left.pressed)
+            // Control arms when select is pressed
+            if (gamepad.select.pressed)
             {
-                gait_period += 0.01;
-                gait_period = std::min(gait_period, gait_period_range.at(1));
-                printf("Gait_Period to %f\n", gait_period);
-            }
-            else if(gamepad.right.pressed)
-            {
-                gait_period -= 0.01;
-                gait_period = std::max(gait_period, gait_period_range.at(0));
-                printf("Gait_Period to %f\n", gait_period);
-            }
-            // Up and Down for base height target
-            if(gamepad.up.pressed)
-            {
-                base_height_target += 0.01;
-                base_height_target = std::min(base_height_target, base_height_target_range.at(1));
-                printf("Base_Height to %f\n", base_height_target);
-            }
-            else if(gamepad.down.pressed)
-            {
-                base_height_target -= 0.01;
-                base_height_target = std::max(base_height_target, base_height_target_range.at(0));
-                printf("Base_Height to %f\n", base_height_target);
-            }
-            // L1 and L2 for foot clearance target
-            if(gamepad.L1.pressed)
-            {
-                foot_clearance_target += 0.01;
-                foot_clearance_target = std::min(foot_clearance_target, foot_clearance_target_range.at(1));
-                printf("Foot_Clearance to %f\n", foot_clearance_target);
-            }
-            else if(gamepad.L2.pressed)
-            {
-                foot_clearance_target -= 0.01;
-                foot_clearance_target = std::max(foot_clearance_target, foot_clearance_target_range.at(0));
-                printf("Foot_Clearance to %f\n", foot_clearance_target);
-            }
-            // record command
-            cmd.at(0) = gamepad.ly; // linear_x: [-1,1]
-            cmd.at(1) = -gamepad.lx; // linear_y; [-1,1]
-            cmd.at(2) = -gamepad.rx; // angular_z: [-1,1]
+                // Left Arm
+                arm_left_shoulder_lateral_target -= gamepad.lx * 0.1f;
+                arm_left_shoulder_front_target   -= gamepad.ly * 0.1f;
+                if (gamepad.L2.pressed)
+                    arm_left_elbow_target  += 0.1f;
+                else if (gamepad.L1.pressed)
+                    arm_left_elbow_target  -= 0.1f;
 
-            pitch_target = gamepad.ry;
+                arm_left_gripper_target          = 0.0f; //*** TODO
+
+                // Limits
+                arm_left_shoulder_lateral_target = std::min(std::max(arm_left_shoulder_lateral_target, cfg.fl_hip_limit[0]), cfg.fl_hip_limit[1]);
+                arm_left_shoulder_front_target   = std::min(std::max(arm_left_shoulder_front_target,   cfg.fl_thigh_limit[0]), cfg.fl_thigh_limit[1]);
+                arm_left_elbow_target            = std::min(std::max(arm_left_elbow_target,            cfg.fl_calf_limit[0]),  cfg.fl_calf_limit[1]);
+
+                // Right Arm
+                arm_right_shoulder_lateral_target -= gamepad.rx * 0.1f;
+                arm_right_shoulder_front_target   -= gamepad.ry * 0.1f;
+                if (gamepad.R2.pressed)
+                    arm_right_elbow_target  += 0.1f;
+                else if (gamepad.R1.pressed)
+                    arm_right_elbow_target  -= 0.1f;
+                arm_right_gripper_target          = 0.0f; //*** TODO
+                // Limits
+                arm_right_shoulder_lateral_target = std::min(std::max(arm_right_shoulder_lateral_target, cfg.fr_hip_limit[0]), cfg.fr_hip_limit[1]);
+                arm_right_shoulder_front_target   = std::min(std::max(arm_right_shoulder_front_target,   cfg.fr_thigh_limit[0]), cfg.fr_thigh_limit[1]);
+                arm_right_elbow_target            = std::min(std::max(arm_right_elbow_target,            cfg.fr_calf_limit[0]),  cfg.fr_calf_limit[1]);
+            }
+            else // Motion control
+            {
+                if (gamepad.left.pressed)
+                {
+                    gait_period += 0.005;
+                    gait_period = std::min(gait_period, gait_period_range.at(1));
+                    printf("Gait_Period to %f\n", gait_period);
+                }
+                else if (gamepad.right.pressed)
+                {
+                    gait_period -= 0.005;
+                    gait_period = std::max(gait_period, gait_period_range.at(0));
+                    printf("Gait_Period to %f\n", gait_period);
+                }
+                // Up and Down for base height target
+                if (gamepad.up.pressed)
+                {
+                    base_height_target += 0.005;
+                    base_height_target = std::min(base_height_target, base_height_target_range.at(1));
+                    printf("Base_Height to %f\n", base_height_target);
+                }
+                else if (gamepad.down.pressed)
+                {
+                    base_height_target -= 0.005;
+                    base_height_target = std::max(base_height_target, base_height_target_range.at(0));
+                    printf("Base_Height to %f\n", base_height_target);
+                }
+                // L1 and L2 for foot clearance target
+                if (gamepad.L1.pressed)
+                {
+                    foot_clearance_target += 0.005;
+                    foot_clearance_target = std::min(foot_clearance_target, foot_clearance_target_range.at(1));
+                    printf("Foot_Clearance to %f\n", foot_clearance_target);
+                }
+                else if (gamepad.L2.pressed)
+                {
+                    foot_clearance_target -= 0.005;
+                    foot_clearance_target = std::max(foot_clearance_target, foot_clearance_target_range.at(0));
+                    printf("Foot_Clearance to %f\n", foot_clearance_target);
+                }
+
+                // record command
+                cmd.at(0) = gamepad.ly; // linear_x: [-1,1]
+                cmd.at(1) = -gamepad.lx; // linear_y; [-1,1]
+                cmd.at(2) = -gamepad.rx; // angular_z: [-1,1]
+            }
 
             // record robot state
             for (int i = 0; i < 12; ++i)
@@ -261,14 +271,9 @@ class RLController : public BasicUserController
         {
             gait_time = 0.0;
             phi = 0.0;
-            gait_choice = 0;
             gait_period = gait_period_range.at(1);
             base_height_target = base_height_target_range.at(1);
             foot_clearance_target = foot_clearance_target_range.at(1);
-            theta.at(0) = theta_fl.at(gait_choice);
-            theta.at(1) = theta_fr.at(gait_choice);
-            theta.at(2) = theta_rl.at(gait_choice);
-            theta.at(3) = theta_rr.at(gait_choice);
             // reset history observation buffer
             for(int i = 0; i < num_single_obs; ++i)
             {
@@ -313,7 +318,6 @@ class RLController : public BasicUserController
             c10::InferenceMode guard;
             auto policy_output_tensor = policy.forward({policy_input_tensor}).toTensor();
 
-            /***** 计算期望位置 *****/
             std::array<float, 12> actions_scaled;
             for(int i = 0; i < 12; ++i)
             {
@@ -355,19 +359,10 @@ class RLController : public BasicUserController
             {
                 log.push_back(clock_input.at(i));
             }
-            for (int i = 0; i < 4; i++)
-            {
-                log.push_back(theta.at(i));
-            }
             log.push_back(gait_period);
             return log;
         }
 
-        /**
-         * @brief 保存初始位置
-         * @param robot_interface
-         * @note  进入站立状态时调用, 读取关节位置保存为初始位置
-        */
         void save_jpos(BasicRobotInterface &robot_interface)
         {
             for (int i = 0; i < 12; ++i)
@@ -390,11 +385,20 @@ class RLController : public BasicUserController
         std::array<float, 12> jvel;
         std::array<float, 12> actions;
         std::array<float, 4> clock_input;
-        std::array<float, 4> theta; // theta_fl, theta_fr, theta_rl, theta_rr
+
+        float arm_left_shoulder_lateral_target;
+        float arm_left_shoulder_front_target;
+        float arm_left_elbow_target;
+        float arm_left_gripper_target;
+
+        float arm_right_shoulder_lateral_target;
+        float arm_right_shoulder_front_target;
+        float arm_right_elbow_target;
+        float arm_right_gripper_target;
+
         float gait_period;
         float base_height_target;
         float foot_clearance_target;
-        float pitch_target;
         int frame_stack;
         int num_single_obs; // length of single step observation
         std::vector<float> single_step_obs; // 用于记录单步观测数据
@@ -412,14 +416,9 @@ class RLController : public BasicUserController
         float action_scale;
         // gait
         int num_gaits;
-        int gait_choice;
         std::array<float, 2> gait_period_range;
         std::array<float, 2> base_height_target_range;
         std::array<float, 2> foot_clearance_target_range;
-        std::vector<float> theta_fl;
-        std::vector<float> theta_fr;
-        std::vector<float> theta_rl;
-        std::vector<float> theta_rr;
         float gait_time;
         float phi;
         // NN model
@@ -453,7 +452,8 @@ class RLController : public BasicUserController
         {
             for (int i = 0; i < 4; i++)
             {
-                clock_input.at(i) = sin(2 * M_PI * (phi + theta.at(i)));
+                //*** eventually just have 1 clock_input
+                clock_input.at(i) = sin(2 * M_PI * (phi));
             }
         }
 
@@ -466,11 +466,6 @@ class RLController : public BasicUserController
                 gait_time = 0.0;
             }
             phi = gait_time / gait_period;
-            // choose gait
-            theta.at(0) = theta_fl.at(gait_choice);
-            theta.at(1) = theta_fr.at(gait_choice);
-            theta.at(2) = theta_rl.at(gait_choice);
-            theta.at(3) = theta_rr.at(gait_choice);
             // calculate clock input
             calc_periodic_obs();
         }
@@ -499,10 +494,16 @@ class RLController : public BasicUserController
             single_step_obs.at(50) = base_height_target;
             single_step_obs.at(51) = foot_clearance_target;
             single_step_obs.at(52) = 1.0; //pitch_target;
-            for (int i = 0; i < 4; ++i)
-            {
-                single_step_obs.at(i+53) = theta.at(i);
-            }
+
+            single_step_obs.at(53) = arm_left_shoulder_lateral_target;
+            single_step_obs.at(54) = arm_left_shoulder_front_target;
+            single_step_obs.at(55) = arm_left_elbow_target;
+            single_step_obs.at(56) = arm_left_gripper_target;
+
+            single_step_obs.at(57) = arm_right_shoulder_lateral_target;
+            single_step_obs.at(58) = arm_right_shoulder_front_target;
+            single_step_obs.at(59) = arm_right_elbow_target;
+            single_step_obs.at(60) = arm_right_gripper_target;
         }
     };
 } // namespace unitree::common
