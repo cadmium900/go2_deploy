@@ -9,6 +9,11 @@ Deployment code of RL policy on Unitree Go2 robot, using policies from [genesis_
 
 ## Installation
 
+1. Install eigen3 dev library
+   ```bash
+   sudo apt-get install libeigen3-dev
+   ```
+
 1. Install [unitree_sdk2](https://github.com/unitreerobotics/unitree_sdk2)
    ```bash
    git clone https://github.com/unitreerobotics/unitree_sdk2.git
@@ -40,12 +45,13 @@ Deployment code of RL policy on Unitree Go2 robot, using policies from [genesis_
    ```
 
 4. Clone unitree_mujoco and compile (for simulation in mujoco)
-   
+
    1. install mujoco
       ```bash
       sudo apt install libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-
+      sudo apt-get install libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev
       git clone https://github.com/google-deepmind/mujoco.git
+      git checkout 3.2.7
       mkdir build && cd build
       cmake ..
       make -j4
@@ -55,8 +61,10 @@ Deployment code of RL policy on Unitree Go2 robot, using policies from [genesis_
       ```
    2. install unitree_mujoco
       ```bash
+      sudo apt-get install libboost-program-options-dev
       git clone https://github.com/lupinjia/unitree_mujoco.git
       cd unitree_mujoco/simulate
+      sudo apt install libyaml-cpp-dev libspdlog-dev libboost-all-dev libglfw3-dev
       mkdir build && cd build
       cmake ..
       make -j4
@@ -93,7 +101,7 @@ Deployment code of RL policy on Unitree Go2 robot, using policies from [genesis_
 ## Demo
 
 - Tuning robot behavior using [walk these ways](https://github.com/Improbable-AI/walk-these-ways) style
-  
+
    [video link](https://www.bilibili.com/video/BV1FPedzZEdi/)
 
 ## Acknowledgement
