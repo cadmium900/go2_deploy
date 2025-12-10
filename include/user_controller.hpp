@@ -1,12 +1,13 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
-#include <vector>
+#include <deque>
 #include <filesystem>
 #include <fstream>
-#include <string>
-#include <deque>
 #include <sstream>
+#include <string>
+#include <vector>
 #include <cmath>
 
 #include <ATen/Context.h>  // for at::globalContext()
@@ -32,9 +33,9 @@ namespace unitree::common
         virtual std::vector<float> GetLog() = 0;
 
         float dt;
-        std::array<float, 12> start_pos;
-        std::array<float, 12> stand_pos;
-        std::array<float, 12> jpos_des;
+        std::array<float, 14> start_pos;
+        std::array<float, 14> stand_pos;
+        std::array<float, 14> jpos_des;
     };
 
 class RLController : public BasicUserController
@@ -43,6 +44,7 @@ class RLController : public BasicUserController
         RLController():stand_kp(0.0), stand_kd(0.0), ctrl_kp(0.0), ctrl_kd(0.0)
          {
             // observation init to 0
+            base_lin_vel.fill(0.0);
             base_ang_vel.fill(0.0);
             projected_gravity.fill(0.);
             projected_gravity.at(2) = -1.0;
@@ -53,8 +55,8 @@ class RLController : public BasicUserController
             clock_input.fill(0.0);
             gait_period = 0.0;
             frame_stack = 5;
-            num_single_obs = 61; // length of single step observation
-            lin_vel_scale = 2.0;
+            num_single_obs = 67; // length of single step observation
+            lin_vel_scale = 1.0;
             ang_vel_scale = 0.25;
             dof_vel_scale = 0.05;
             num_gaits = 1;
@@ -101,7 +103,7 @@ class RLController : public BasicUserController
             frame_stack = cfg.frame_stack;
             num_single_obs = cfg.num_single_obs;
             num_gaits = cfg.num_gaits;
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 stand_pos.at(i) = cfg.stand_pos.at(i);
                 sit_pos.at(i) = cfg.sit_pos.at(i);
@@ -179,6 +181,7 @@ class RLController : public BasicUserController
             // save necessary data from input
             std::copy(robot_interface.gyro.begin(), robot_interface.gyro.end(), base_ang_vel.begin());
             std::copy(robot_interface.projected_gravity.begin(), robot_interface.projected_gravity.end(), projected_gravity.begin());
+            update_base_lin_vel(robot_interface);
 
             // Control arms when select is pressed
             if (gamepad.select.pressed)
@@ -259,7 +262,7 @@ class RLController : public BasicUserController
             }
 
             // record robot state
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 jpos_processed.at(i) = robot_interface.jpos.at(i) - stand_pos.at(i);
                 jvel.at(i) = robot_interface.jvel.at(i);
@@ -274,6 +277,8 @@ class RLController : public BasicUserController
             gait_period = gait_period_range.at(1);
             base_height_target = base_height_target_range.at(1);
             foot_clearance_target = foot_clearance_target_range.at(1);
+            base_lin_vel.fill(0.0f);
+            base_lin_vel_world.fill(0.0f);
             // reset history observation buffer
             for(int i = 0; i < num_single_obs; ++i)
             {
@@ -318,8 +323,8 @@ class RLController : public BasicUserController
             c10::InferenceMode guard;
             auto policy_output_tensor = policy.forward({policy_input_tensor}).toTensor();
 
-            std::array<float, 12> actions_scaled;
-            for(int i = 0; i < 12; ++i)
+            std::array<float, 14> actions_scaled;
+            for(int i = 0; i < 14; ++i)
             {
                 actions.at(i) = policy_output_tensor[0][i].item<float>();
                 actions_scaled.at(i) = actions.at(i) * action_scale;
@@ -343,15 +348,15 @@ class RLController : public BasicUserController
             {
                 log.push_back(base_ang_vel.at(i));
             }
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 log.push_back(jpos_processed.at(i));
             }
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 log.push_back(jvel.at(i));
             }
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 log.push_back(actions.at(i));
             }
@@ -365,7 +370,7 @@ class RLController : public BasicUserController
 
         void save_jpos(BasicRobotInterface &robot_interface)
         {
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 14; ++i)
             {
                 start_pos.at(i) = robot_interface.jpos.at(i);
             }
@@ -374,17 +379,18 @@ class RLController : public BasicUserController
         // cfg
         RLCfg cfg;
 
-        std::array<float, 12> tau;
-        std::array<float, 12> sit_pos; // sit状态最终位置
+        std::array<float, 14> tau;
+        std::array<float, 14> sit_pos; // sit状态最终位置
 
         // observation
+        std::array<float, 3> base_lin_vel;
         std::array<float, 3> base_ang_vel;
         std::array<float, 3> projected_gravity;
         std::array<float, 3> cmd;
-        std::array<float, 12> jpos_processed;       //joint sequence: sim
-        std::array<float, 12> jvel;
-        std::array<float, 12> actions;
-        std::array<float, 4> clock_input;
+        std::array<float, 14> jpos_processed;       //joint sequence: sim
+        std::array<float, 14> jvel;
+        std::array<float, 14> actions;
+        std::array<float, 1> clock_input;
 
         float arm_left_shoulder_lateral_target;
         float arm_left_shoulder_front_target;
@@ -429,6 +435,7 @@ class RLController : public BasicUserController
     private:
         // All inference uses this device (kept consistent across calls).
         torch::Device inference_device{torch::kCUDA, 0};
+        std::array<float, 3> base_lin_vel_world{0.0f, 0.0f, 0.0f};
 
         // Build a {1, frame_stack*num_single_obs} FP32 tensor on CPU from history,
         // then move to CUDA on the same device as the policy.
@@ -450,11 +457,7 @@ class RLController : public BasicUserController
 
         void calc_periodic_obs()
         {
-            for (int i = 0; i < 4; i++)
-            {
-                //*** eventually just have 1 clock_input
-                clock_input.at(i) = sin(2 * M_PI * (phi));
-            }
+            clock_input.at(0) = sin(2 * M_PI * (phi));
         }
 
         void pre_process()
@@ -470,40 +473,114 @@ class RLController : public BasicUserController
             calc_periodic_obs();
         }
 
+        static std::array<float, 3> cross(const std::array<float, 3> &a, const std::array<float, 3> &b)
+        {
+            return {
+                a.at(1) * b.at(2) - a.at(2) * b.at(1),
+                a.at(2) * b.at(0) - a.at(0) * b.at(2),
+                a.at(0) * b.at(1) - a.at(1) * b.at(0)};
+        }
+
+        static std::array<float, 4> quat_conjugate(const std::array<float, 4> &q)
+        {
+            return {q.at(0), -q.at(1), -q.at(2), -q.at(3)};
+        }
+
+        // Rotate a 3D vector by a unit quaternion (w, x, y, z).
+        static std::array<float, 3> rotate_vec_by_quat(const std::array<float, 3> &v, const std::array<float, 4> &q)
+        {
+            const std::array<float, 3> u{q.at(1), q.at(2), q.at(3)};
+            const float s = q.at(0);
+            auto t = cross(u, v);
+            for (auto &c : t)
+            {
+                c *= 2.0f;
+            }
+            const auto c2 = cross(u, t);
+            return {
+                v.at(0) + s * t.at(0) + c2.at(0),
+                v.at(1) + s * t.at(1) + c2.at(1),
+                v.at(2) + s * t.at(2) + c2.at(2)};
+        }
+
+        static float norm3(const std::array<float, 3> &v)
+        {
+            return std::sqrt(v.at(0) * v.at(0) + v.at(1) * v.at(1) + v.at(2) * v.at(2));
+        }
+
+        void update_base_lin_vel(const BasicRobotInterface &robot_interface)
+        {
+            // Remove gravity in the IMU (body) frame.
+            std::array<float, 3> lin_acc_body;
+            constexpr float g = 9.81f;
+            for (int i = 0; i < 3; ++i)
+            {
+                lin_acc_body.at(i) = robot_interface.acc.at(i) + robot_interface.projected_gravity.at(i) * g;
+            }
+           // printf("acc %f, %f, %f\n", robot_interface.acc.at(0), robot_interface.acc.at(1),robot_interface.acc.at(2));
+           // printf("pg  %f, %f, %f\n", robot_interface.projected_gravity.at(0), robot_interface.projected_gravity.at(1),robot_interface.projected_gravity.at(2));
+           // printf("lin_acc %f, %f, %f\n", lin_acc_body.at(0), lin_acc_body.at(1), lin_acc_body.at(2));
+            const float gyro_norm = norm3(robot_interface.gyro);
+            const float acc_norm = norm3(robot_interface.acc);
+            const bool maybe_stationary = (gyro_norm < 0.1f) && (std::fabs(acc_norm - g) < 0.5f);
+
+            // Rotate to world frame, integrate, then rotate back to body like in sim.
+            const auto lin_acc_world = rotate_vec_by_quat(lin_acc_body, robot_interface.quat);
+            const float vel_decay = maybe_stationary ? 0.07f : 0.09f; // bleed faster when still
+            constexpr float max_body_vel = 5.0f;     // clamp to realistic walking speeds (m/s)
+            for (int i = 0; i < 3; ++i)
+            {
+                base_lin_vel_world.at(i) = 1.0 * (base_lin_vel_world.at(i) + lin_acc_world.at(i) * dt);
+            }
+
+            const auto inv_q = quat_conjugate(robot_interface.quat);
+            auto vel_body = rotate_vec_by_quat(base_lin_vel_world, inv_q);
+            for (int i = 0; i < 3; ++i)
+            {
+                // Deadband to squash tiny residual drift when standing
+                const float v = vel_body.at(i);
+                const float v_db = v;
+                base_lin_vel.at(i) = std::clamp(v_db, -max_body_vel, max_body_vel);
+            }
+            printf("lin_vel %f, %f, %f\n", base_lin_vel.at(0), base_lin_vel.at(1), base_lin_vel.at(2));
+        }
+
         void fill_single_step_obs()
         {
-            single_step_obs.at(0) = cmd.at(0) * lin_vel_scale;
-            single_step_obs.at(1) = cmd.at(1) * lin_vel_scale;
-            single_step_obs.at(2) = cmd.at(2) * ang_vel_scale;
-            for(int i = 0; i < 3; ++i)
-            {
-                single_step_obs.at(i+3) = projected_gravity.at(i);
-                single_step_obs.at(i+6) = base_ang_vel.at(i) * ang_vel_scale;
-            }
-            for(int i = 0; i < 12; ++i)
-            {
-                single_step_obs.at(i+9) = jpos_processed.at(i);
-                single_step_obs.at(i+21) = jvel.at(i) * dof_vel_scale;
-                single_step_obs.at(i+33) = actions.at(i);
-            }
-            for(int i = 0; i < 4; ++i)
-            {
-                single_step_obs.at(i+45) = clock_input.at(i);
-            }
-            single_step_obs.at(49) = gait_period;
-            single_step_obs.at(50) = base_height_target;
-            single_step_obs.at(51) = foot_clearance_target;
-            single_step_obs.at(52) = 1.0; //pitch_target;
+            single_step_obs.at(0)  = cmd.at(0) * lin_vel_scale;
+            single_step_obs.at(1)  = cmd.at(1) * lin_vel_scale;
+            single_step_obs.at(2)  = cmd.at(2) * ang_vel_scale;
+            single_step_obs.at(3)  = projected_gravity.at(0);
+            single_step_obs.at(4)  = projected_gravity.at(1);
+            single_step_obs.at(5)  = projected_gravity.at(2);
+            single_step_obs.at(6)  = base_lin_vel.at(0) * lin_vel_scale;
+            single_step_obs.at(7)  = base_lin_vel.at(1) * lin_vel_scale;
+            single_step_obs.at(8)  = base_lin_vel.at(2) * lin_vel_scale;
+            single_step_obs.at(9)  = base_ang_vel.at(0) * ang_vel_scale;
+            single_step_obs.at(10) = base_ang_vel.at(1) * ang_vel_scale;
+            single_step_obs.at(11) = base_ang_vel.at(2) * ang_vel_scale;
 
-            single_step_obs.at(53) = arm_left_shoulder_lateral_target;
-            single_step_obs.at(54) = arm_left_shoulder_front_target;
-            single_step_obs.at(55) = arm_left_elbow_target;
-            single_step_obs.at(56) = arm_left_gripper_target;
+            for(int i = 0; i < 14; ++i)
+            {
+                single_step_obs.at(i+12) = jpos_processed.at(i);
+                single_step_obs.at(i+26) = jvel.at(i) * dof_vel_scale;
+                single_step_obs.at(i+40) = actions.at(i);
+            }
+            single_step_obs.at(54) = clock_input.at(0);
+            single_step_obs.at(55) = gait_period;
+            single_step_obs.at(56) = base_height_target;
+            single_step_obs.at(57) = foot_clearance_target;
+            single_step_obs.at(58) = 1.0; //pitch_target;
 
-            single_step_obs.at(57) = arm_right_shoulder_lateral_target;
-            single_step_obs.at(58) = arm_right_shoulder_front_target;
-            single_step_obs.at(59) = arm_right_elbow_target;
-            single_step_obs.at(60) = arm_right_gripper_target;
+            single_step_obs.at(59) = arm_left_shoulder_lateral_target;
+            single_step_obs.at(60) = arm_left_shoulder_front_target;
+            single_step_obs.at(61) = arm_left_elbow_target;
+            single_step_obs.at(62) = arm_left_gripper_target;
+
+            single_step_obs.at(63) = arm_right_shoulder_lateral_target;
+            single_step_obs.at(64) = arm_right_shoulder_front_target;
+            single_step_obs.at(65) = arm_right_elbow_target;
+            single_step_obs.at(66) = arm_right_gripper_target;
         }
     };
 } // namespace unitree::common

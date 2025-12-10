@@ -54,7 +54,7 @@ namespace unitree::common
         void Standing(RLController& ctrl)
         {
             standing_percent = (float)standing_count / standing_duration;
-            for (int i = 0; i < 12; i++)
+            for (int i = 0; i < 14; i++)
             {
                 ctrl.jpos_des.at(i) = (1 - standing_percent)*ctrl.start_pos.at(i) + standing_percent*ctrl.stand_pos.at(i);
             }
@@ -105,7 +105,7 @@ namespace unitree::common
         void Sitting(RLController& ctrl)
         {
             sitting_percent = (float)sitting_count / sitting_duration;
-            for (int i = 0; i < 12; i++)
+            for (int i = 0; i < 14; i++)
             {
                 ctrl.jpos_des.at(i) = (1 - sitting_percent)*ctrl.start_pos.at(i) + sitting_percent*ctrl.sit_pos.at(i);
             }

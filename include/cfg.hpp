@@ -69,6 +69,8 @@ namespace unitree::common
             FromAny<float>(json["fr_hip_limit"], fr_hip_limit);
             FromAny<float>(json["fr_thigh_limit"], fr_thigh_limit);
             FromAny<float>(json["fr_calf_limit"], fr_calf_limit);
+            FromAny<float>(json["rl_foot_limit"], rl_foot_limit);
+            FromAny<float>(json["rr_foot_limit"], rr_foot_limit);
         }
 
         void toJson(JsonMap &json) const
@@ -98,6 +100,8 @@ namespace unitree::common
             ToAny<float>(fr_hip_limit, json["fr_hip_limit"]);
             ToAny<float>(fr_thigh_limit, json["fr_thigh_limit"]);
             ToAny<float>(fr_calf_limit, json["fr_calf_limit"]);
+            ToAny<float>(rl_foot_limit, json["rl_foot_limit"]);
+            ToAny<float>(rr_foot_limit, json["rr_foot_limit"]);
         }
 
         std::string device;
@@ -124,9 +128,11 @@ namespace unitree::common
         std::vector<float> fl_hip_limit;
         std::vector<float> fl_thigh_limit;
         std::vector<float> fl_calf_limit;
+        std::vector<float> rl_foot_limit;
         std::vector<float> fr_hip_limit;
         std::vector<float> fr_thigh_limit;
         std::vector<float> fr_calf_limit;
+        std::vector<float> rr_foot_limit;
         std::vector<float> stand_pos;
         std::vector<float> sit_pos;
     };

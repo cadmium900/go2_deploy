@@ -5,6 +5,7 @@
 #define MATHTOOLS_H
 
 #include <array>
+#include <cmath>
 #include <stdio.h>
 #include <iostream>
 
@@ -34,17 +35,6 @@ float clip(float value, float low_limit, float high_limit)
     return value;
 }
 
-float max_abs(std::array<float, 12> arr)
-{
-    float max_abs = 0.0;
-    for(int i=0; i<12; i++){
-        if(fabs(arr[i]) > max_abs){
-            max_abs = fabs(arr[i]);
-        }
-    }
-    return max_abs;
-}
-
 template<typename T1, typename T2>
 inline T1 max(const T1 a, const T2 b){
 	return (a > b ? a : b);
@@ -53,6 +43,21 @@ inline T1 max(const T1 a, const T2 b){
 template<typename T1, typename T2>
 inline T1 min(const T1 a, const T2 b){
 	return (a < b ? a : b);
+}
+
+template<size_t N>
+float max_abs(const std::array<float, N> &arr)
+{
+    float max_abs_val = 0.0f;
+    for (size_t i = 0; i < N; i++)
+    {
+        const float v = std::fabs(arr[i]);
+        if (v > max_abs_val)
+        {
+            max_abs_val = v;
+        }
+    }
+    return max_abs_val;
 }
 
 #endif  // MATHTOOLS_H

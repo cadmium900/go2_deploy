@@ -1,54 +1,66 @@
 {
     "device": "cpu",
     "policy_name": "go2.pt",
-    "dt": 0.01,
+    "dt": 0.02,
     "stand_kp": 60.0,
     "stand_kd": 5.0,
     "ctrl_kp": 20,
     "ctrl_kd": 0.5,
     "action_scale": 0.25,
-    "lin_vel_scale": 1.0,
+    "lin_vel_scale": 2.0,
     "ang_vel_scale": 0.25,
     "dof_vel_scale": 0.05,
     "frame_stack": 5,
-    "num_single_obs": 61,
+    "num_single_obs": 67,
     "num_gaits": 1,
     "gait_period_range": [0.4, 0.6],
-    "base_height_target_range": [0.30, 0.65],
-    "foot_clearance_target_range": [0.06, 0.19],
+    "base_height_target_range": [0.50, 0.65],
+    "foot_clearance_target_range": [0.26, 0.29],
     "fl_hip_limit": [-1.0472, 1.0472],
     "fl_thigh_limit": [-1.5708, 3.4907],
     "fl_calf_limit": [-2.7227, -0.83776],
     "fr_hip_limit": [-1.0472, 1.0472],
     "fr_thigh_limit": [-1.5708, 3.4907],
     "fr_calf_limit": [-2.7227, -0.83776],
+    "rl_foot_limit": [-0.3, 0.4],
+    "rr_foot_limit": [-0.3, 0.4],
 
     "stand_pos": [
         0.0,
         0.8,
         -1.5,
+
         0.0,
         0.8,
         -1.5,
+
         0.0,
         0.8,
         -1.5,
+        0.2,
+
         0.0,
         0.8,
-        -1.5
+        -1.5,
+        0.2
     ],
     "sit_pos": [
         0.04,
         1.3,
         -2.87,
+
         -0.02,
         1.29,
         -2.86,
+
         -0.33,
         1.27,
         -2.81,
+        0.3,
+
         0.32,
         1.28,
-        -2.87
+        -2.87,
+        0.3
     ]
 }
