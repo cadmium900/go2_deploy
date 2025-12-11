@@ -279,6 +279,7 @@ class RLController : public BasicUserController
             foot_clearance_target = foot_clearance_target_range.at(1);
             base_lin_vel.fill(0.0f);
             base_lin_vel_world.fill(0.0f);
+            acc_bias.fill(0.0f);
             // reset history observation buffer
             for(int i = 0; i < num_single_obs; ++i)
             {
@@ -436,6 +437,7 @@ class RLController : public BasicUserController
         // All inference uses this device (kept consistent across calls).
         torch::Device inference_device{torch::kCUDA, 0};
         std::array<float, 3> base_lin_vel_world{0.0f, 0.0f, 0.0f};
+        std::array<float, 3> acc_bias{0.0f, 0.0f, 0.0f};
 
         // Build a {1, frame_stack*num_single_obs} FP32 tensor on CPU from history,
         // then move to CUDA on the same device as the policy.
@@ -513,25 +515,41 @@ class RLController : public BasicUserController
             // Remove gravity in the IMU (body) frame.
             std::array<float, 3> lin_acc_body;
             constexpr float g = 9.81f;
-            for (int i = 0; i < 3; ++i)
-            {
-                lin_acc_body.at(i) = robot_interface.acc.at(i) + robot_interface.projected_gravity.at(i) * g;
-            }
-           // printf("acc %f, %f, %f\n", robot_interface.acc.at(0), robot_interface.acc.at(1),robot_interface.acc.at(2));
-           // printf("pg  %f, %f, %f\n", robot_interface.projected_gravity.at(0), robot_interface.projected_gravity.at(1),robot_interface.projected_gravity.at(2));
-           // printf("lin_acc %f, %f, %f\n", lin_acc_body.at(0), lin_acc_body.at(1), lin_acc_body.at(2));
-            const float gyro_norm = norm3(robot_interface.gyro);
-            const float acc_norm = norm3(robot_interface.acc);
-            const bool maybe_stationary = (gyro_norm < 0.1f) && (std::fabs(acc_norm - g) < 0.5f);
 
-            // Rotate to world frame, integrate, then rotate back to body like in sim.
-            const auto lin_acc_world = rotate_vec_by_quat(lin_acc_body, robot_interface.quat);
-            const float vel_decay = maybe_stationary ? 0.07f : 0.09f; // bleed faster when still
+            auto acc = rotate_vec_by_quat(robot_interface.acc, robot_interface.quat);
+            acc.at(2) -= g;
+            acc = rotate_vec_by_quat(acc, quat_conjugate(robot_interface.quat));
+
+            const float gyro_norm = norm3(robot_interface.gyro);
+            const float acc_norm = norm3(acc);
+            const bool maybe_stationary = (gyro_norm < 0.1f) && (std::fabs(acc_norm) < 0.5f);
+
+            printf("ACC: %f %f %f\n", acc.at(0), acc.at(1), acc.at(2));
+            printf("gyro %f %f %f\n", robot_interface.gyro.at(0), robot_interface.gyro.at(1), robot_interface.gyro.at(2));
+            printf("maybe_station %d, gyro_norm %f acc_norm %f\n", maybe_stationary?1:0, gyro_norm, acc_norm);
+
+            // Rotate to world, remove gravity vector {0,0,-g}, then back to body.
+            auto lin_acc_world = rotate_vec_by_quat(acc, robot_interface.quat);
+
+            lin_acc_body = rotate_vec_by_quat(lin_acc_world, quat_conjugate(robot_interface.quat));
+
+            printf("lin_acc_body %f %f %f\n", lin_acc_body.at(0), lin_acc_body.at(1), lin_acc_body.at(2));
+            printf("lin_acc_world %f %f %f\n", lin_acc_world.at(0), lin_acc_world.at(1), lin_acc_world.at(2));
+            const float speed_body = norm3(base_lin_vel);
+            const bool slow_body = speed_body < 0.05f;
+            const float vel_decay = (maybe_stationary && slow_body) ? 0.80f : 0.003f; // bleed only when really stopped
+            constexpr float max_acc_world = 50.0f;
             constexpr float max_body_vel = 5.0f;     // clamp to realistic walking speeds (m/s)
             for (int i = 0; i < 3; ++i)
             {
-                base_lin_vel_world.at(i) = 1.0 * (base_lin_vel_world.at(i) + lin_acc_world.at(i) * dt);
+                const float acc_w = std::clamp(lin_acc_world.at(i), -max_acc_world, max_acc_world);
+                base_lin_vel_world.at(i) = (1.0f - vel_decay) * base_lin_vel_world.at(i) + (acc_w * dt);
+                if (maybe_stationary)// && slow_body && std::fabs(base_lin_vel_world.at(i)) < 0.02f)
+                {
+                    base_lin_vel_world.at(i) = 0.0f;
+                }
             }
+            printf("blvw %f %f %f\n", base_lin_vel_world.at(0), base_lin_vel_world.at(1), base_lin_vel_world.at(2));
 
             const auto inv_q = quat_conjugate(robot_interface.quat);
             auto vel_body = rotate_vec_by_quat(base_lin_vel_world, inv_q);
@@ -539,7 +557,7 @@ class RLController : public BasicUserController
             {
                 // Deadband to squash tiny residual drift when standing
                 const float v = vel_body.at(i);
-                const float v_db = v;
+                const float v_db = (float)lround(v * 100.0) / 100.0;
                 base_lin_vel.at(i) = std::clamp(v_db, -max_body_vel, max_body_vel);
             }
             printf("lin_vel %f, %f, %f\n", base_lin_vel.at(0), base_lin_vel.at(1), base_lin_vel.at(2));
