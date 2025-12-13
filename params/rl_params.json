@@ -2,12 +2,12 @@
     "device": "cpu",
     "policy_name": "go2.pt",
     "dt": 0.02,
-    "stand_kp": 60.0,
-    "stand_kd": 5.0,
-    "ctrl_kp": 20,
-    "ctrl_kd": 0.5,
+    "stand_kp": 30.0,
+    "stand_kd": 0.6,
+    "ctrl_kp": 30.0,
+    "ctrl_kd": 0.6,
     "action_scale": 0.25,
-    "lin_vel_scale": 2.0,
+    "lin_vel_scale": 1.0,
     "ang_vel_scale": 0.25,
     "dof_vel_scale": 0.05,
     "frame_stack": 5,
@@ -37,12 +37,12 @@
         0.0,
         0.8,
         -1.5,
-        0.2,
+        0.0,
 
         0.0,
         0.8,
         -1.5,
-        0.2
+        0.0
     ],
     "sit_pos": [
         0.04,

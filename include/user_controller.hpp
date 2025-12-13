@@ -26,7 +26,7 @@ namespace unitree::common
         BasicUserController() {}
 
         virtual void LoadParam(fs::path &param_folder) = 0;
-        virtual void reset(BasicRobotInterface &robot_interface, Gamepad &gamepad) = 0;
+        virtual void reset(BasicRobotInterface &, Gamepad &gamepad) = 0;
         virtual void GetInput(BasicRobotInterface &robot_interface, Gamepad &gamepad) = 0;
         virtual void Calculate() = 0;
 
@@ -46,6 +46,7 @@ class RLController : public BasicUserController
             // observation init to 0
             base_lin_vel.fill(0.0);
             base_ang_vel.fill(0.0);
+            base_acc.fill(0.0);
             projected_gravity.fill(0.);
             projected_gravity.at(2) = -1.0;
             cmd.fill(0.0);
@@ -181,7 +182,8 @@ class RLController : public BasicUserController
             // save necessary data from input
             std::copy(robot_interface.gyro.begin(), robot_interface.gyro.end(), base_ang_vel.begin());
             std::copy(robot_interface.projected_gravity.begin(), robot_interface.projected_gravity.end(), projected_gravity.begin());
-            update_base_lin_vel(robot_interface);
+            std::copy(robot_interface.acc.begin(), robot_interface.acc.end(), base_acc.begin());
+            //update_base_lin_vel(robot_interface);
 
             // Control arms when select is pressed
             if (gamepad.select.pressed)
@@ -386,6 +388,7 @@ class RLController : public BasicUserController
         // observation
         std::array<float, 3> base_lin_vel;
         std::array<float, 3> base_ang_vel;
+        std::array<float, 3> base_acc;
         std::array<float, 3> projected_gravity;
         std::array<float, 3> cmd;
         std::array<float, 14> jpos_processed;       //joint sequence: sim
@@ -524,6 +527,11 @@ class RLController : public BasicUserController
             const float acc_norm = norm3(acc);
             const bool maybe_stationary = (gyro_norm < 0.1f) && (std::fabs(acc_norm) < 0.5f);
 
+            std::array<float, 3> g_world = {0, 0, 9.81};
+            auto g_test = rotate_vec_by_quat(g_world, quat_conjugate(robot_interface.quat));
+            printf("RACC %f %f %f  vs g_test  %f %f %f\n", robot_interface.acc.at(0), robot_interface.acc.at(1), robot_interface.acc.at(2),
+                   g_test.at(0), g_test.at(1), g_test.at(2));
+
             printf("ACC: %f %f %f\n", acc.at(0), acc.at(1), acc.at(2));
             printf("gyro %f %f %f\n", robot_interface.gyro.at(0), robot_interface.gyro.at(1), robot_interface.gyro.at(2));
             printf("maybe_station %d, gyro_norm %f acc_norm %f\n", maybe_stationary?1:0, gyro_norm, acc_norm);
@@ -537,12 +545,12 @@ class RLController : public BasicUserController
             printf("lin_acc_world %f %f %f\n", lin_acc_world.at(0), lin_acc_world.at(1), lin_acc_world.at(2));
             const float speed_body = norm3(base_lin_vel);
             const bool slow_body = speed_body < 0.05f;
-            const float vel_decay = (maybe_stationary && slow_body) ? 0.80f : 0.003f; // bleed only when really stopped
+            const float vel_decay = (maybe_stationary ) ? 0.80f : 0.0f; // bleed only when really stopped
             constexpr float max_acc_world = 50.0f;
-            constexpr float max_body_vel = 5.0f;     // clamp to realistic walking speeds (m/s)
+            constexpr float max_body_vel = 15.0f;     // clamp to realistic walking speeds (m/s)
             for (int i = 0; i < 3; ++i)
             {
-                const float acc_w = std::clamp(lin_acc_world.at(i), -max_acc_world, max_acc_world);
+                const float acc_w = std::clamp(lin_acc_world.at(i), -max_acc_world, max_acc_world) * 1.0f;
                 base_lin_vel_world.at(i) = (1.0f - vel_decay) * base_lin_vel_world.at(i) + (acc_w * dt);
                 if (maybe_stationary)// && slow_body && std::fabs(base_lin_vel_world.at(i)) < 0.02f)
                 {
@@ -557,7 +565,7 @@ class RLController : public BasicUserController
             {
                 // Deadband to squash tiny residual drift when standing
                 const float v = vel_body.at(i);
-                const float v_db = (float)lround(v * 100.0) / 100.0;
+                const float v_db = v;//(float)lround(v * 100.0) / 100.0;
                 base_lin_vel.at(i) = std::clamp(v_db, -max_body_vel, max_body_vel);
             }
             printf("lin_vel %f, %f, %f\n", base_lin_vel.at(0), base_lin_vel.at(1), base_lin_vel.at(2));
@@ -571,9 +579,9 @@ class RLController : public BasicUserController
             single_step_obs.at(3)  = projected_gravity.at(0);
             single_step_obs.at(4)  = projected_gravity.at(1);
             single_step_obs.at(5)  = projected_gravity.at(2);
-            single_step_obs.at(6)  = base_lin_vel.at(0) * lin_vel_scale;
-            single_step_obs.at(7)  = base_lin_vel.at(1) * lin_vel_scale;
-            single_step_obs.at(8)  = base_lin_vel.at(2) * lin_vel_scale;
+            single_step_obs.at(6)  = base_acc.at(0);
+            single_step_obs.at(7)  = base_acc.at(1);
+            single_step_obs.at(8)  = base_acc.at(2);
             single_step_obs.at(9)  = base_ang_vel.at(0) * ang_vel_scale;
             single_step_obs.at(10) = base_ang_vel.at(1) * ang_vel_scale;
             single_step_obs.at(11) = base_ang_vel.at(2) * ang_vel_scale;
