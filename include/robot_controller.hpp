@@ -53,7 +53,7 @@ public:
         header << "base_ang_vel_x,base_ang_vel_y,base_ang_vel_z,";
         header << "jpos0,jpos1,jpos2,jpos3,jpos4,jpos5,jpos6,jpos7,jpos8,jpos9,jpos10,jpos11,jpos12,jpos13,";
         header << "jvel0,jvel1,jvel2,jvel3,jvel4,jvel5,jvel6,jvel7,jvel8,jvel9,jvel10,jvel11,jpos12,jpos13,";
-        header << "action0,action1,action2,action3,action4,action5,action6,action7,action8,action9,action10,action11,action12,action13,action14";
+        header << "action0,action1,action2,action3,action4,action5,action6,action7,action8,action9,action10,action11,action12";
         header << "clock0,clock1,clock2,clock3";
         header << "theta0,theta1,theta2,theta3";
         header << "gait_period";
@@ -256,7 +256,7 @@ private:
 
     void set_cmd()
     {
-        for(int i = 0; i < 14; i++)
+        for(int i = 0; i < 12; i++)
         {
             cmd.motor_cmd()[i].q() = robot_interface.jpos_des.at(i);
             cmd.motor_cmd()[i].dq() = robot_interface.jvel_des.at(i);

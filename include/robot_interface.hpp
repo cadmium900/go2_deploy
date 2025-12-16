@@ -45,7 +45,7 @@ namespace unitree::common
 
             // motor
             const std::array<unitree_go::msg::dds_::MotorState_, 20> &motor = state.motor_state();
-            for (size_t i = 0; i < 14; ++i)
+            for (size_t i = 0; i < 12; ++i)
             {
                 const unitree_go::msg::dds_::MotorState_ &m = motor.at(i);
                 jpos.at(i) = m.q();
@@ -54,10 +54,10 @@ namespace unitree::common
             }
         }
 
-        std::array<float, 14> jpos, jvel, tau;
+        std::array<float, 12> jpos, jvel, tau;
         std::array<float, 4> quat;
         std::array<float, 3> rpy, gyro, projected_gravity, acc;
-        std::array<float, 14> jpos_des, jvel_des, kp, kd, tau_ff;
+        std::array<float, 12> jpos_des, jvel_des, kp, kd, tau_ff;
 
     private:
         inline void UpdateProjectedGravity()

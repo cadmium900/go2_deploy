@@ -11,7 +11,7 @@
     "ang_vel_scale": 0.25,
     "dof_vel_scale": 0.05,
     "frame_stack": 5,
-    "num_single_obs": 67,
+    "num_single_obs": 61,
     "num_gaits": 1,
     "gait_period_range": [0.4, 0.6],
     "base_height_target_range": [0.50, 0.65],
@@ -22,8 +22,6 @@
     "fr_hip_limit": [-1.0472, 1.0472],
     "fr_thigh_limit": [-1.5708, 3.4907],
     "fr_calf_limit": [-2.7227, -0.83776],
-    "rl_foot_limit": [-0.3, 0.4],
-    "rr_foot_limit": [-0.3, 0.4],
 
     "stand_pos": [
         0.0,
@@ -37,12 +35,10 @@
         0.0,
         0.8,
         -1.5,
-        0.0,
 
         0.0,
         0.8,
-        -1.5,
-        0.0
+        -1.5
     ],
     "sit_pos": [
         0.04,
@@ -56,11 +52,9 @@
         -0.33,
         1.27,
         -2.81,
-        0.3,
 
         0.32,
         1.28,
-        -2.87,
-        0.3
+        -2.87
     ]
 }

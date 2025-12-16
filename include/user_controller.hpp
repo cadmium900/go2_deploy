@@ -33,9 +33,9 @@ namespace unitree::common
         virtual std::vector<float> GetLog() = 0;
 
         float dt;
-        std::array<float, 14> start_pos;
-        std::array<float, 14> stand_pos;
-        std::array<float, 14> jpos_des;
+        std::array<float, 12> start_pos;
+        std::array<float, 12> stand_pos;
+        std::array<float, 12> jpos_des;
     };
 
 class RLController : public BasicUserController
@@ -56,7 +56,7 @@ class RLController : public BasicUserController
             clock_input.fill(0.0);
             gait_period = 0.0;
             frame_stack = 5;
-            num_single_obs = 67; // length of single step observation
+            num_single_obs = 61; // length of single step observation
             lin_vel_scale = 1.0;
             ang_vel_scale = 0.25;
             dof_vel_scale = 0.05;
@@ -104,7 +104,7 @@ class RLController : public BasicUserController
             frame_stack = cfg.frame_stack;
             num_single_obs = cfg.num_single_obs;
             num_gaits = cfg.num_gaits;
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 stand_pos.at(i) = cfg.stand_pos.at(i);
                 sit_pos.at(i) = cfg.sit_pos.at(i);
@@ -264,7 +264,7 @@ class RLController : public BasicUserController
             }
 
             // record robot state
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 jpos_processed.at(i) = robot_interface.jpos.at(i) - stand_pos.at(i);
                 jvel.at(i) = robot_interface.jvel.at(i);
@@ -326,12 +326,31 @@ class RLController : public BasicUserController
             c10::InferenceMode guard;
             auto policy_output_tensor = policy.forward({policy_input_tensor}).toTensor();
 
-            std::array<float, 14> actions_scaled;
-            for(int i = 0; i < 14; ++i)
+            std::array<float, 12> actions_scaled;
+            // Detect when we intend to stand still and are upright; otherwise let policy act.
+            const float cmd_norm  = std::sqrt(cmd.at(0) * cmd.at(0) + cmd.at(1) * cmd.at(1) + cmd.at(2) * cmd.at(2));
+            const float gyro_norm = norm3(base_ang_vel);
+            // projected_gravity points roughly [0,0,-1] when upright
+            const bool upright = (projected_gravity.at(0) < -0.85f);
+            const bool stationary = (cmd_norm < 0.05f) && (gyro_norm < 0.5f) && upright;
+            for(int i = 0; i < 12; ++i)
             {
                 actions.at(i) = policy_output_tensor[0][i].item<float>();
                 actions_scaled.at(i) = actions.at(i) * action_scale;
-                jpos_des.at(i) = stand_pos.at(i) + actions_scaled.at(i);
+                // When truly stationary and upright, hold the nominal stand pose
+                // to suppress in-place trotting; if disturbed (not upright or high gyro),
+                // let the policy act normally to recover.
+               /* if (stationary)
+                {
+                printf("stationary\n");
+                    actions.at(i) = 0.0f;
+                    actions_scaled.at(i) = 0.0f;
+                    jpos_des.at(i) = stand_pos.at(i);
+                }
+                else*/
+                {
+                    jpos_des.at(i) = stand_pos.at(i) + actions_scaled.at(i);
+                }
             }
         }
 
@@ -351,15 +370,15 @@ class RLController : public BasicUserController
             {
                 log.push_back(base_ang_vel.at(i));
             }
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 log.push_back(jpos_processed.at(i));
             }
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 log.push_back(jvel.at(i));
             }
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 log.push_back(actions.at(i));
             }
@@ -373,7 +392,7 @@ class RLController : public BasicUserController
 
         void save_jpos(BasicRobotInterface &robot_interface)
         {
-            for (int i = 0; i < 14; ++i)
+            for (int i = 0; i < 12; ++i)
             {
                 start_pos.at(i) = robot_interface.jpos.at(i);
             }
@@ -382,8 +401,8 @@ class RLController : public BasicUserController
         // cfg
         RLCfg cfg;
 
-        std::array<float, 14> tau;
-        std::array<float, 14> sit_pos; // sit状态最终位置
+        std::array<float, 12> tau;
+        std::array<float, 12> sit_pos; // sit状态最终位置
 
         // observation
         std::array<float, 3> base_lin_vel;
@@ -391,9 +410,9 @@ class RLController : public BasicUserController
         std::array<float, 3> base_acc;
         std::array<float, 3> projected_gravity;
         std::array<float, 3> cmd;
-        std::array<float, 14> jpos_processed;       //joint sequence: sim
-        std::array<float, 14> jvel;
-        std::array<float, 14> actions;
+        std::array<float, 12> jpos_processed;       //joint sequence: sim
+        std::array<float, 12> jvel;
+        std::array<float, 12> actions;
         std::array<float, 1> clock_input;
 
         float arm_left_shoulder_lateral_target;
@@ -573,6 +592,18 @@ class RLController : public BasicUserController
 
         void fill_single_step_obs()
         {
+            // Clamp commands
+            if (cmd.at(0) >= -0.05 && cmd.at(0) <= 0.05
+	            && cmd.at(1) >= -0.05 && cmd.at(1) <= 0.05
+	            && cmd.at(2) >= -0.05 && cmd.at(2) <= 0.05)
+	        {
+                cmd.at(0) = 0.0;
+                cmd.at(1) = 0.0;
+                cmd.at(2) = 0.0;
+            }
+
+            //*** Detect standstill and zero actions
+
             single_step_obs.at(0)  = cmd.at(0) * lin_vel_scale;
             single_step_obs.at(1)  = cmd.at(1) * lin_vel_scale;
             single_step_obs.at(2)  = cmd.at(2) * ang_vel_scale;
@@ -586,27 +617,27 @@ class RLController : public BasicUserController
             single_step_obs.at(10) = base_ang_vel.at(1) * ang_vel_scale;
             single_step_obs.at(11) = base_ang_vel.at(2) * ang_vel_scale;
 
-            for(int i = 0; i < 14; ++i)
+            for(int i = 0; i < 12; ++i)
             {
                 single_step_obs.at(i+12) = jpos_processed.at(i);
-                single_step_obs.at(i+26) = jvel.at(i) * dof_vel_scale;
-                single_step_obs.at(i+40) = actions.at(i);
+                single_step_obs.at(i+24) = jvel.at(i) * dof_vel_scale;
+                single_step_obs.at(i+36) = actions.at(i);
             }
-            single_step_obs.at(54) = clock_input.at(0);
-            single_step_obs.at(55) = gait_period;
-            single_step_obs.at(56) = base_height_target;
-            single_step_obs.at(57) = foot_clearance_target;
-            single_step_obs.at(58) = 1.0; //pitch_target;
+            single_step_obs.at(48) = clock_input.at(0);
+            single_step_obs.at(49) = gait_period;
+            single_step_obs.at(50) = base_height_target;
+            single_step_obs.at(51) = foot_clearance_target;
+            single_step_obs.at(52) = 1.0; //pitch_target;
 
-            single_step_obs.at(59) = arm_left_shoulder_lateral_target;
-            single_step_obs.at(60) = arm_left_shoulder_front_target;
-            single_step_obs.at(61) = arm_left_elbow_target;
-            single_step_obs.at(62) = arm_left_gripper_target;
+            single_step_obs.at(53) = arm_left_shoulder_lateral_target;
+            single_step_obs.at(54) = arm_left_shoulder_front_target;
+            single_step_obs.at(55) = arm_left_elbow_target;
+            single_step_obs.at(56) = arm_left_gripper_target;
 
-            single_step_obs.at(63) = arm_right_shoulder_lateral_target;
-            single_step_obs.at(64) = arm_right_shoulder_front_target;
-            single_step_obs.at(65) = arm_right_elbow_target;
-            single_step_obs.at(66) = arm_right_gripper_target;
+            single_step_obs.at(57) = arm_right_shoulder_lateral_target;
+            single_step_obs.at(58) = arm_right_shoulder_front_target;
+            single_step_obs.at(59) = arm_right_elbow_target;
+            single_step_obs.at(60) = arm_right_gripper_target;
         }
     };
 } // namespace unitree::common
