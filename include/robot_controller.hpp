@@ -317,6 +317,8 @@ private:
     // 50Hz
     void ControlStep()
     {
+        static auto last = std::chrono::high_resolution_clock::now();
+
         // update state
         UpdateGamePad();
         UpdateStateMachine();
@@ -362,6 +364,7 @@ private:
 
         //WriteLog();
 
+
         if (compute_time.size() == 50)
         {
             float sum = 0;
@@ -369,15 +372,21 @@ private:
             {
                 sum += t;
             }
+
             std::cout << "Performance: mean: " << sum / 50
                       << " ms; max: " << *std::max_element(compute_time.begin(), compute_time.end())
                       << " ms; min: " << *std::min_element(compute_time.begin(), compute_time.end())
-                      << "ms." << std::endl;
+                      << "ms."
 
+                      << std::endl;
+
+        auto real_dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - last);
+		printf("RealDT %fms\n", real_dt.count() / 1000.);
             compute_time.clear();
 
             std::cout << "Current State: " << static_cast<size_t>(state_machine.state) << std::endl;
         }
+                last = std::chrono::high_resolution_clock::now();
     }
 
     void WriteLog()

@@ -56,7 +56,7 @@ class RLController : public BasicUserController
             clock_input.fill(0.0);
             gait_period = 0.0;
             frame_stack = 5;
-            num_single_obs = 61; // length of single step observation
+            num_single_obs = 62; // length of single step observation
             lin_vel_scale = 1.0;
             ang_vel_scale = 0.25;
             dof_vel_scale = 0.05;
@@ -183,7 +183,7 @@ class RLController : public BasicUserController
             std::copy(robot_interface.gyro.begin(), robot_interface.gyro.end(), base_ang_vel.begin());
             std::copy(robot_interface.projected_gravity.begin(), robot_interface.projected_gravity.end(), projected_gravity.begin());
             std::copy(robot_interface.acc.begin(), robot_interface.acc.end(), base_acc.begin());
-            //update_base_lin_vel(robot_interface);
+
 
             // Control arms when select is pressed
             if (gamepad.select.pressed)
@@ -382,10 +382,8 @@ class RLController : public BasicUserController
             {
                 log.push_back(actions.at(i));
             }
-            for (int i = 0; i < 4; i++)
-            {
-                log.push_back(clock_input.at(i));
-            }
+            log.push_back(clock_input.at(0));
+            log.push_back(clock_input.at(1));
             log.push_back(gait_period);
             return log;
         }
@@ -413,7 +411,7 @@ class RLController : public BasicUserController
         std::array<float, 12> jpos_processed;       //joint sequence: sim
         std::array<float, 12> jvel;
         std::array<float, 12> actions;
-        std::array<float, 1> clock_input;
+        std::array<float, 2> clock_input;
 
         float arm_left_shoulder_lateral_target;
         float arm_left_shoulder_front_target;
@@ -482,6 +480,7 @@ class RLController : public BasicUserController
         void calc_periodic_obs()
         {
             clock_input.at(0) = sin(2 * M_PI * (phi));
+            clock_input.at(1) = cos(2 * M_PI * (phi));
         }
 
         void pre_process()
@@ -532,77 +531,14 @@ class RLController : public BasicUserController
             return std::sqrt(v.at(0) * v.at(0) + v.at(1) * v.at(1) + v.at(2) * v.at(2));
         }
 
-        void update_base_lin_vel(const BasicRobotInterface &robot_interface)
-        {
-            // Remove gravity in the IMU (body) frame.
-            std::array<float, 3> lin_acc_body;
-            constexpr float g = 9.81f;
-
-            auto acc = rotate_vec_by_quat(robot_interface.acc, robot_interface.quat);
-            acc.at(2) -= g;
-            acc = rotate_vec_by_quat(acc, quat_conjugate(robot_interface.quat));
-
-            const float gyro_norm = norm3(robot_interface.gyro);
-            const float acc_norm = norm3(acc);
-            const bool maybe_stationary = (gyro_norm < 0.1f) && (std::fabs(acc_norm) < 0.5f);
-
-            std::array<float, 3> g_world = {0, 0, 9.81};
-            auto g_test = rotate_vec_by_quat(g_world, quat_conjugate(robot_interface.quat));
-            printf("RACC %f %f %f  vs g_test  %f %f %f\n", robot_interface.acc.at(0), robot_interface.acc.at(1), robot_interface.acc.at(2),
-                   g_test.at(0), g_test.at(1), g_test.at(2));
-
-            printf("ACC: %f %f %f\n", acc.at(0), acc.at(1), acc.at(2));
-            printf("gyro %f %f %f\n", robot_interface.gyro.at(0), robot_interface.gyro.at(1), robot_interface.gyro.at(2));
-            printf("maybe_station %d, gyro_norm %f acc_norm %f\n", maybe_stationary?1:0, gyro_norm, acc_norm);
-
-            // Rotate to world, remove gravity vector {0,0,-g}, then back to body.
-            auto lin_acc_world = rotate_vec_by_quat(acc, robot_interface.quat);
-
-            lin_acc_body = rotate_vec_by_quat(lin_acc_world, quat_conjugate(robot_interface.quat));
-
-            printf("lin_acc_body %f %f %f\n", lin_acc_body.at(0), lin_acc_body.at(1), lin_acc_body.at(2));
-            printf("lin_acc_world %f %f %f\n", lin_acc_world.at(0), lin_acc_world.at(1), lin_acc_world.at(2));
-            const float speed_body = norm3(base_lin_vel);
-            const bool slow_body = speed_body < 0.05f;
-            const float vel_decay = (maybe_stationary ) ? 0.80f : 0.0f; // bleed only when really stopped
-            constexpr float max_acc_world = 50.0f;
-            constexpr float max_body_vel = 15.0f;     // clamp to realistic walking speeds (m/s)
-            for (int i = 0; i < 3; ++i)
-            {
-                const float acc_w = std::clamp(lin_acc_world.at(i), -max_acc_world, max_acc_world) * 1.0f;
-                base_lin_vel_world.at(i) = (1.0f - vel_decay) * base_lin_vel_world.at(i) + (acc_w * dt);
-                if (maybe_stationary)// && slow_body && std::fabs(base_lin_vel_world.at(i)) < 0.02f)
-                {
-                    base_lin_vel_world.at(i) = 0.0f;
-                }
-            }
-            printf("blvw %f %f %f\n", base_lin_vel_world.at(0), base_lin_vel_world.at(1), base_lin_vel_world.at(2));
-
-            const auto inv_q = quat_conjugate(robot_interface.quat);
-            auto vel_body = rotate_vec_by_quat(base_lin_vel_world, inv_q);
-            for (int i = 0; i < 3; ++i)
-            {
-                // Deadband to squash tiny residual drift when standing
-                const float v = vel_body.at(i);
-                const float v_db = v;//(float)lround(v * 100.0) / 100.0;
-                base_lin_vel.at(i) = std::clamp(v_db, -max_body_vel, max_body_vel);
-            }
-            printf("lin_vel %f, %f, %f\n", base_lin_vel.at(0), base_lin_vel.at(1), base_lin_vel.at(2));
-        }
-
         void fill_single_step_obs()
         {
-            // Clamp commands
-            if (cmd.at(0) >= -0.05 && cmd.at(0) <= 0.05
-	            && cmd.at(1) >= -0.05 && cmd.at(1) <= 0.05
-	            && cmd.at(2) >= -0.05 && cmd.at(2) <= 0.05)
-	        {
-                cmd.at(0) = 0.0;
-                cmd.at(1) = 0.0;
+	        if (cmd.at(0) >= -0.01 && cmd.at(0) <= 0.01)
+        	    cmd.at(0) = 0.0;
+	        if (cmd.at(1) >= -0.01 && cmd.at(1) <= 0.01)
+        	    cmd.at(1) = 0.0;
+            if (cmd.at(2) >= -0.01 && cmd.at(2) <= 0.01)
                 cmd.at(2) = 0.0;
-            }
-
-            //*** Detect standstill and zero actions
 
             single_step_obs.at(0)  = cmd.at(0) * lin_vel_scale;
             single_step_obs.at(1)  = cmd.at(1) * lin_vel_scale;
@@ -623,21 +559,23 @@ class RLController : public BasicUserController
                 single_step_obs.at(i+24) = jvel.at(i) * dof_vel_scale;
                 single_step_obs.at(i+36) = actions.at(i);
             }
+
             single_step_obs.at(48) = clock_input.at(0);
-            single_step_obs.at(49) = gait_period;
-            single_step_obs.at(50) = base_height_target;
-            single_step_obs.at(51) = foot_clearance_target;
-            single_step_obs.at(52) = 1.0; //pitch_target;
+            single_step_obs.at(49) = clock_input.at(1);
+            single_step_obs.at(50) = gait_period;
+            single_step_obs.at(51) = base_height_target;
+            single_step_obs.at(52) = foot_clearance_target;
+            single_step_obs.at(53) = 1.0; //pitch_target;
 
-            single_step_obs.at(53) = arm_left_shoulder_lateral_target;
-            single_step_obs.at(54) = arm_left_shoulder_front_target;
-            single_step_obs.at(55) = arm_left_elbow_target;
-            single_step_obs.at(56) = arm_left_gripper_target;
+            single_step_obs.at(54) = arm_left_shoulder_lateral_target;
+            single_step_obs.at(55) = arm_left_shoulder_front_target;
+            single_step_obs.at(56) = arm_left_elbow_target;
+            single_step_obs.at(57) = arm_left_gripper_target;
 
-            single_step_obs.at(57) = arm_right_shoulder_lateral_target;
-            single_step_obs.at(58) = arm_right_shoulder_front_target;
-            single_step_obs.at(59) = arm_right_elbow_target;
-            single_step_obs.at(60) = arm_right_gripper_target;
+            single_step_obs.at(58) = arm_right_shoulder_lateral_target;
+            single_step_obs.at(59) = arm_right_shoulder_front_target;
+            single_step_obs.at(60) = arm_right_elbow_target;
+            single_step_obs.at(61) = arm_right_gripper_target;
         }
     };
 } // namespace unitree::common
